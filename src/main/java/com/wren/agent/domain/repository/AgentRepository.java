@@ -18,4 +18,8 @@ public interface AgentRepository extends JpaRepository<Agent, UUID> {
     @Modifying
     @Query("UPDATE Agent a SET a.postSequence = a.postSequence + 1 WHERE a.id = :agentId")
     int incrementPostSequence(@Param("agentId") UUID agentId);
+
+    @Modifying
+    @Query(value = "UPDATE agents SET post_sequence = post_sequence + 1 WHERE id = :agentId RETURNING post_sequence", nativeQuery = true)
+    int incrementPostSequenceAndGet(@Param("agentId") UUID agentId);
 }

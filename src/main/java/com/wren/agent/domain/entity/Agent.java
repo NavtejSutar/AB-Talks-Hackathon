@@ -33,6 +33,9 @@ public class Agent {
     @Column(name = "next_tick_at")
     private Instant nextTickAt;
 
+    @Column(name = "system_prompt", columnDefinition = "TEXT")
+    private String systemPrompt;
+
     public Agent() {}
 
     public Agent(String personaName, String personaDomain) {
@@ -66,4 +69,10 @@ public class Agent {
 
     public Instant getNextTickAt() { return nextTickAt; }
     public void setNextTickAt(Instant nextTickAt) { this.nextTickAt = nextTickAt; }
+
+    public String getSystemPrompt() { return systemPrompt; }
+    public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
+
+    /** Convenience alias — returns personaName as the display name for prompt injection. */
+    public String getName() { return personaName; }
 }

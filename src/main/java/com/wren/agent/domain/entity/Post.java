@@ -22,18 +22,34 @@ public class Post {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    /** Headline (short punchy one-liner) */
+    @Column(name = "headline", columnDefinition = "TEXT")
+    private String headline;
+
+    /** Body text */
+    @Column(name = "body", columnDefinition = "TEXT")
+    private String body;
+
+    /** Legacy text column — stores full combined content if headline/body not set */
     @Column(name = "text", nullable = false, columnDefinition = "TEXT")
     private String text;
 
-    @Column(name = "rationale", nullable = false, columnDefinition = "TEXT")
+    @Column(name = "rationale", columnDefinition = "TEXT")
     private String rationale;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
     @Column(name = "sources", nullable = false)
     private List<String> sources = new ArrayList<>();
 
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "hashtags")
+    private List<String> hashtags = new ArrayList<>();
+
     @Column(name = "topic_key", nullable = false)
     private String topicKey;
+
+    @Column(name = "credibility_tier")
+    private String credibilityTier;
 
     @Column(name = "is_followup_of")
     private String isFollowupOf;
@@ -61,6 +77,12 @@ public class Post {
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 
+    public String getHeadline() { return headline; }
+    public void setHeadline(String headline) { this.headline = headline; }
+
+    public String getBody() { return body; }
+    public void setBody(String body) { this.body = body; }
+
     public String getText() { return text; }
     public void setText(String text) { this.text = text; }
 
@@ -70,8 +92,14 @@ public class Post {
     public List<String> getSources() { return sources; }
     public void setSources(List<String> sources) { this.sources = sources; }
 
+    public List<String> getHashtags() { return hashtags; }
+    public void setHashtags(List<String> hashtags) { this.hashtags = hashtags; }
+
     public String getTopicKey() { return topicKey; }
     public void setTopicKey(String topicKey) { this.topicKey = topicKey; }
+
+    public String getCredibilityTier() { return credibilityTier; }
+    public void setCredibilityTier(String credibilityTier) { this.credibilityTier = credibilityTier; }
 
     public String getIsFollowupOf() { return isFollowupOf; }
     public void setIsFollowupOf(String isFollowupOf) { this.isFollowupOf = isFollowupOf; }

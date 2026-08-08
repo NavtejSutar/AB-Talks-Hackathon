@@ -45,6 +45,14 @@ public class StructuredJsonParser {
         return trimmed.trim();
     }
 
+    /**
+     * Extracts and cleans JSON from raw LLM output.
+     * Strips markdown code fences and returns the cleaned JSON string.
+     */
+    public String extractJson(String rawText) {
+        return stripMarkdownCodeFences(rawText);
+    }
+
     public static class StructuredJsonParseException extends Exception {
         public StructuredJsonParseException(String message) {
             super(message);

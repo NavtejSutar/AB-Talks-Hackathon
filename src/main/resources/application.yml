@@ -42,3 +42,7 @@ wren:
     nvd-key: ${NVD_API_KEY:}
   security:
     debug-token: ${DEBUG_TOKEN:dev-secret-token}
+  scheduler:
+    enabled: ${SCHEDULER_ENABLED:true}
+    # Cron: every 4 hours at minute 0. Set to a fast schedule (*/1 * * * * ?) for local testing.
+    cron: ${SCHEDULER_CRON:0 0 */4 * * *}
