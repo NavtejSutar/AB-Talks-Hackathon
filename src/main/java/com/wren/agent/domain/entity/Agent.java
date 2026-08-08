@@ -39,6 +39,7 @@ public class Agent {
     public Agent() {}
 
     public Agent(String personaName, String personaDomain) {
+        this.id = UUID.randomUUID();
         this.personaName = personaName;
         this.personaDomain = personaDomain;
         this.status = "ACTIVE";

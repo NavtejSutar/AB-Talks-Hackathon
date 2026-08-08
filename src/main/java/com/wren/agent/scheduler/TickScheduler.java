@@ -20,51 +20,54 @@ public class TickScheduler {
 
     private final AgentRepository agentRepository;
     private final PipelineOrchestrator orchestrator;
+    private final TickLockManager lockManager;
     private final RestTemplate restTemplate;
 
     @Value("${server.port:8080}")
     private int serverPort;
 
-    @Value("${wren.scheduler.enabled:true}")
-    private boolean schedulerEnabled;
+    @Value("${wren.scheduler.cron.enabled:false}")
+    private boolean fallbackCronEnabled;
 
-    public TickScheduler(AgentRepository agentRepository, PipelineOrchestrator orchestrator) {
+    public TickScheduler(AgentRepository agentRepository, PipelineOrchestrator orchestrator, TickLockManager lockManager) {
         this.agentRepository = agentRepository;
         this.orchestrator = orchestrator;
+        this.lockManager = lockManager;
         this.restTemplate = new RestTemplate();
     }
 
     /**
-     * Primary tick: fires every 4 hours.
-     * Each ACTIVE agent gets one pipeline run.
-     * On tick completion, schedules a self-ping to /health (second-layer fallback for Render cold-start wakeup).
+     * Optional fallback tick cron: disabled by default in favor of SchedulerRegistrar's per-agent randomized scheduler.
      */
     @Scheduled(cron = "${wren.scheduler.cron:0 0 */4 * * *}")
     public void tick() {
-        if (!schedulerEnabled) {
-            log.info("TickScheduler disabled (wren.scheduler.enabled=false)");
+        if (!fallbackCronEnabled) {
+            log.debug("TickScheduler fallback cron is disabled (wren.scheduler.cron.enabled=false)");
             return;
         }
 
-        log.info("TickScheduler: tick starting at {}", Instant.now());
+        log.info("TickScheduler: fallback cron tick starting at {}", Instant.now());
 
-        List<Agent> activeAgents = agentRepository.findAll().stream()
-                .filter(a -> "ACTIVE".equals(a.getStatus()))
-                .toList();
+        List<Agent> activeAgents = agentRepository.findByStatus("ACTIVE");
 
         log.info("TickScheduler: {} active agents", activeAgents.size());
 
         for (Agent agent : activeAgents) {
+            if (!lockManager.tryAcquire(agent.getId())) {
+                log.warn("TickScheduler: agent {} tick skipped — tick in progress", agent.getId());
+                continue;
+            }
             try {
                 orchestrator.runTick(agent);
             } catch (Exception e) {
                 log.error("TickScheduler: unhandled failure for agent {}: {}", agent.getId(), e.getMessage(), e);
+            } finally {
+                lockManager.release(agent.getId());
             }
         }
 
         log.info("TickScheduler: tick completed at {}", Instant.now());
 
-        // Self-ping fallback (second-layer defence for Render free tier cold start)
         selfPing();
     }
 

@@ -5,6 +5,7 @@ import com.wren.agent.api.dto.InitResponse;
 import com.wren.agent.domain.entity.Agent;
 import com.wren.agent.domain.repository.AgentRepository;
 import com.wren.agent.persona.PersonaProfile;
+import com.wren.agent.scheduler.SchedulerRegistrar;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +16,11 @@ import java.util.UUID;
 public class AgentService {
 
     private final AgentRepository agentRepository;
+    private final SchedulerRegistrar schedulerRegistrar;
 
-    public AgentService(AgentRepository agentRepository) {
+    public AgentService(AgentRepository agentRepository, SchedulerRegistrar schedulerRegistrar) {
         this.agentRepository = agentRepository;
+        this.schedulerRegistrar = schedulerRegistrar;
     }
 
     @Transactional
@@ -28,6 +31,9 @@ public class AgentService {
         Agent agent = new Agent(personaName, personaDomain);
         agent.setSystemPrompt(PersonaProfile.buildSystemPrompt(PersonaProfile.getDisplayName(personaName)));
         Agent savedAgent = agentRepository.save(agent);
+
+        // Schedule autonomous ticks for the initialized agent
+        schedulerRegistrar.scheduleAgent(savedAgent);
 
         return new InitResponse(savedAgent.getId().toString());
     }
