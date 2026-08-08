@@ -11,35 +11,54 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Simple sliding-window rate limiter for the Gemini API.
+ * Rate limiter + circuit-breaker for the Gemini API.
  *
- * <p>Enforces {@code wren.llm.gemini-rpm} (default 5) requests per 60-second window.
- * Callers invoke {@link #acquirePermit()} before each Gemini call; the call blocks
- * until a slot is available within the current window.
+ * <p><b>Rate limiting</b>: enforces {@code wren.llm.gemini-rpm} (default 5) requests per
+ * 60-second sliding window. Callers invoke {@link #acquirePermit()} before each Gemini call.
  *
- * <p>This is intentionally lightweight — it uses a single Semaphore whose permits
- * are reset each minute. Permits are never lost across resets: the window slides
- * forward every 60 seconds from the first call.
+ * <p><b>Circuit breaker</b>: after {@code wren.llm.gemini-circuit-failure-threshold} (default 2)
+ * consecutive failures (429, 503, timeout), the circuit opens for
+ * {@code wren.llm.gemini-circuit-open-seconds} (default 120 s).
+ * While open, {@link #isCircuitOpen()} returns {@code true} and callers must
+ * skip the LLM call and mark candidates {@code LLM_UNAVAILABLE} instead of waiting/retrying.
+ * The circuit resets automatically after the open period.
+ *
+ * <p>Callers must invoke {@link #recordSuccess()} or {@link #recordFailure()} after each call
+ * to keep the circuit state accurate.
  */
 @Component
 public class GeminiRateLimiter {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiRateLimiter.class);
 
+    // ---- rate limiting ----
     private final int requestsPerMinute;
     private final Semaphore semaphore;
     private final AtomicLong windowStartMs = new AtomicLong(0);
     private final AtomicInteger usedInWindow = new AtomicInteger(0);
 
+    // ---- circuit breaker ----
+    private final int failureThreshold;
+    private final long circuitOpenMs;
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
+    private final AtomicLong circuitOpenUntilMs = new AtomicLong(0);
+
     public GeminiRateLimiter(
-            @Value("${wren.llm.gemini-rpm:5}") int requestsPerMinute) {
+            @Value("${wren.llm.gemini-rpm:5}") int requestsPerMinute,
+            @Value("${wren.llm.gemini-circuit-failure-threshold:2}") int failureThreshold,
+            @Value("${wren.llm.gemini-circuit-open-seconds:120}") int circuitOpenSeconds) {
         this.requestsPerMinute = requestsPerMinute;
         this.semaphore = new Semaphore(requestsPerMinute, true);
-        log.info("GeminiRateLimiter initialised: {} requests/minute", requestsPerMinute);
+        this.failureThreshold = failureThreshold;
+        this.circuitOpenMs = circuitOpenSeconds * 1000L;
+        log.info("GeminiRateLimiter initialised: rpm={} circuit-threshold={} circuit-open={}s",
+                requestsPerMinute, failureThreshold, circuitOpenSeconds);
     }
 
+    // ---- rate limiting API ----
+
     /**
-     * Acquires one Gemini request permit, blocking until one is available.
+     * Acquires one Gemini request permit, blocking until one is available in the current window.
      * Resets the window every 60 seconds.
      *
      * @throws InterruptedException if the calling thread is interrupted while waiting
@@ -52,21 +71,65 @@ public class GeminiRateLimiter {
 
         boolean acquired = semaphore.tryAcquire();
         if (!acquired) {
-            // Window is exhausted — compute how long until it resets and sleep
             long elapsed = System.currentTimeMillis() - windowStartMs.get();
-            long sleepMs = Math.max(0, 60_000L - elapsed) + 200; // +200 ms safety margin
+            long sleepMs = Math.max(0, 60_000L - elapsed) + 200L; // +200 ms safety margin
             log.info("GeminiRateLimiter: quota exhausted ({}/{} used). Waiting {}ms for window reset.",
                     requestsPerMinute, requestsPerMinute, sleepMs);
             TimeUnit.MILLISECONDS.sleep(sleepMs);
-            // After sleeping, a new window should be available
             maybeResetWindow();
-            semaphore.acquire(); // block until truly available
+            semaphore.acquire();
         }
     }
 
-    /** Returns the configured requests-per-minute cap. */
     public int getRequestsPerMinute() {
         return requestsPerMinute;
+    }
+
+    // ---- circuit-breaker API ----
+
+    /**
+     * Returns {@code true} if the circuit is currently open (Gemini should not be called).
+     * The circuit auto-resets after the configured open period.
+     */
+    public boolean isCircuitOpen() {
+        long openUntil = circuitOpenUntilMs.get();
+        if (openUntil == 0) {
+            return false;
+        }
+        if (System.currentTimeMillis() >= openUntil) {
+            // Auto-reset
+            if (circuitOpenUntilMs.compareAndSet(openUntil, 0)) {
+                consecutiveFailures.set(0);
+                log.info("GeminiRateLimiter: circuit CLOSED (open period expired)");
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Records a successful LLM call — resets consecutive failure count.
+     */
+    public void recordSuccess() {
+        int prev = consecutiveFailures.getAndSet(0);
+        if (prev > 0) {
+            log.info("GeminiRateLimiter: circuit recovered after {} consecutive failures", prev);
+        }
+    }
+
+    /**
+     * Records a failed LLM call (429, 503, timeout, etc.).
+     * Opens the circuit if the failure threshold is reached.
+     */
+    public void recordFailure() {
+        int failures = consecutiveFailures.incrementAndGet();
+        log.warn("GeminiRateLimiter: consecutive failure #{}", failures);
+        if (failures >= failureThreshold) {
+            long openUntil = System.currentTimeMillis() + circuitOpenMs;
+            circuitOpenUntilMs.set(openUntil);
+            log.warn("GeminiRateLimiter: circuit OPENED after {} failures — will stay open for {}ms",
+                    failures, circuitOpenMs);
+        }
     }
 
     // ----- internal helpers -----
@@ -75,10 +138,9 @@ public class GeminiRateLimiter {
         long now = System.currentTimeMillis();
         long windowStart = windowStartMs.get();
         if (windowStart == 0 || now - windowStart >= 60_000L) {
-            // CAS — only one thread resets the window
             if (windowStartMs.compareAndSet(windowStart, now)) {
                 int drained = semaphore.drainPermits();
-                semaphore.release(requestsPerMinute); // refill to full
+                semaphore.release(requestsPerMinute);
                 usedInWindow.set(0);
                 log.debug("GeminiRateLimiter: window reset (reclaimed {} unused permits, refilled to {})",
                         drained, requestsPerMinute);

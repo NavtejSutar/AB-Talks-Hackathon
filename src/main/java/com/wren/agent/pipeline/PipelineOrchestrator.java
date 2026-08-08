@@ -31,6 +31,7 @@ public class PipelineOrchestrator {
     private final NormalizationStage normalizationStage;
     private final DeduplicationStage deduplicationStage;
     private final CredibilityCheckStage credibilityCheckStage;
+    private final CheapRelevanceFilter cheapRelevanceFilter;
     private final EditorialScoreStage editorialScoreStage;
     private final PersonaAlignmentStage personaAlignmentStage;
     private final PublishDecisionStage publishDecisionStage;
@@ -46,6 +47,7 @@ public class PipelineOrchestrator {
             NormalizationStage normalizationStage,
             DeduplicationStage deduplicationStage,
             CredibilityCheckStage credibilityCheckStage,
+            CheapRelevanceFilter cheapRelevanceFilter,
             EditorialScoreStage editorialScoreStage,
             PersonaAlignmentStage personaAlignmentStage,
             PublishDecisionStage publishDecisionStage,
@@ -59,6 +61,7 @@ public class PipelineOrchestrator {
         this.normalizationStage = normalizationStage;
         this.deduplicationStage = deduplicationStage;
         this.credibilityCheckStage = credibilityCheckStage;
+        this.cheapRelevanceFilter = cheapRelevanceFilter;
         this.editorialScoreStage = editorialScoreStage;
         this.personaAlignmentStage = personaAlignmentStage;
         this.publishDecisionStage = publishDecisionStage;
@@ -109,8 +112,13 @@ public class PipelineOrchestrator {
             int rejectedAtCredibility = (discovered + resumedCount) - credible.size();
             metrics.recordRejected(rejectedAtCredibility);
 
-            // Stage 5: Editorial scoring (LLM per candidate)
-            List<ScoredCandidate> scored = editorialScoreStage.score(credible, agent, tickId);
+            // Stage 4b: Cheap relevance pre-filter (keyword match + cap) — zero LLM cost
+            List<NormalizedCandidate> relevant = cheapRelevanceFilter.filter(credible, agent.getId(), tickId);
+            int cheapRelevanceRejections = credible.size() - relevant.size();
+            metrics.incrementRejected(cheapRelevanceRejections);
+
+            // Stage 5: Editorial scoring — ONE batch LLM call for all relevant candidates
+            List<ScoredCandidate> scored = editorialScoreStage.score(relevant, agent, tickId);
 
             // Calculate average editorial score
             double avgScore = scored.stream()
@@ -122,9 +130,21 @@ public class PipelineOrchestrator {
             // Stage 6: Persona alignment filter (rule-based)
             List<ScoredCandidate> aligned = personaAlignmentStage.filter(scored, agent, tickId);
 
-            // Count editorial rejections (scored - aligned)
-            int editorialRejections = scored.size() - aligned.size();
-            metrics.incrementRejected(editorialRejections);
+            // Count editorial rejections (excluding LLM_UNAVAILABLE)
+            List<TopicCandidate> tickCandidatesDb = topicCandidateRepository.findByAgentIdAndTickId(agent.getId(), tickId);
+            long countLlmUnavailable = tickCandidatesDb.stream()
+                    .filter(tc -> "EDITORIAL_SCORE".equals(tc.getDecisionStage()) && "LLM_UNAVAILABLE".equals(tc.getDecision()))
+                    .count();
+            int editorialRejections = relevant.size() - (int) countLlmUnavailable - scored.size();
+            if (editorialRejections > 0) {
+                metrics.incrementRejected(editorialRejections);
+            }
+
+            // Count persona alignment rejections
+            int personaRejections = scored.size() - aligned.size();
+            if (personaRejections > 0) {
+                metrics.incrementRejected(personaRejections);
+            }
 
             // Stage 7: Publish decision (exactly one winner)
             PublishDecision publishDecision = publishDecisionStage.decide(aligned);
@@ -143,6 +163,67 @@ public class PipelineOrchestrator {
             Instant now = Instant.now();
             agent.setLastTickAt(now);
             agentRepository.save(agent);
+
+            // Output detailed metrics for verification / logging
+            List<TopicCandidate> finalTickCandidates = topicCandidateRepository.findByAgentIdAndTickId(agent.getId(), tickId);
+            long countCredibilityRejected = finalTickCandidates.stream()
+                    .filter(tc -> "CREDIBILITY_CHECK".equals(tc.getDecisionStage()) && "REJECTED".equals(tc.getDecision()))
+                    .count();
+            long countCheapFiltered = finalTickCandidates.stream()
+                    .filter(tc -> "CHEAP_RELEVANCE_FILTER".equals(tc.getDecisionStage()) && tc.getDecisionReason() != null && tc.getDecisionReason().contains("No AI-security"))
+                    .count();
+            long countCapped = finalTickCandidates.stream()
+                    .filter(tc -> "CHEAP_RELEVANCE_FILTER".equals(tc.getDecisionStage()) && tc.getDecisionReason() != null && tc.getDecisionReason().contains("Capped"))
+                    .count();
+            long countSentToLlm = relevant.size();
+            long countLlmEvaluated = finalTickCandidates.stream()
+                    .filter(tc -> "EDITORIAL_SCORE".equals(tc.getDecisionStage()) && !"LLM_UNAVAILABLE".equals(tc.getDecision()))
+                    .count();
+            long countLlmUnavailableFinal = finalTickCandidates.stream()
+                    .filter(tc -> "EDITORIAL_SCORE".equals(tc.getDecisionStage()) && "LLM_UNAVAILABLE".equals(tc.getDecision()))
+                    .count();
+            long countEditorialRejected = finalTickCandidates.stream()
+                    .filter(tc -> "EDITORIAL_SCORE".equals(tc.getDecisionStage()) && "REJECTED".equals(tc.getDecision()))
+                    .count();
+            long countEditorialAccepted = finalTickCandidates.stream()
+                    .filter(tc -> "EDITORIAL_SCORE".equals(tc.getDecisionStage()) && "ACCEPTED".equals(tc.getDecision()))
+                    .count();
+            long countPersonaAligned = finalTickCandidates.stream()
+                    .filter(tc -> "PERSONA_ALIGNMENT".equals(tc.getDecisionStage()) && "ACCEPTED".equals(tc.getDecision()))
+                    .count();
+            long countPersonaRejected = finalTickCandidates.stream()
+                    .filter(tc -> "PERSONA_ALIGNMENT".equals(tc.getDecisionStage()) && "REJECTED".equals(tc.getDecision()))
+                    .count();
+            long countWritten = drafts.size();
+            long countCritiqueApproved = finalTickCandidates.stream()
+                    .filter(tc -> "SELF_CRITIQUE".equals(tc.getDecisionStage()) && "PUBLISH".equals(tc.getDecision()))
+                    .count();
+            long countCritiqueRevised = finalTickCandidates.stream()
+                    .filter(tc -> "SELF_CRITIQUE".equals(tc.getDecisionStage()) && "REVISE".equals(tc.getDecision()))
+                    .count();
+            long countCritiqueRejected = finalTickCandidates.stream()
+                    .filter(tc -> "SELF_CRITIQUE".equals(tc.getDecisionStage()) && "REJECTED".equals(tc.getDecision()))
+                    .count();
+
+            log.info("=== TICK DETAIL METRICS [tick={}] ===", tickId);
+            log.info("  Discovered:          {}", discovered);
+            log.info("  Resumed:             {}", resumedCount);
+            log.info("  Credibility rejected:{}", countCredibilityRejected);
+            log.info("  Cheap filtered:      {}", countCheapFiltered);
+            log.info("  Capped:              {}", countCapped);
+            log.info("  Sent to LLM:         {}", countSentToLlm);
+            log.info("  LLM evaluated:       {}", countLlmEvaluated);
+            log.info("  LLM unavailable:     {}", countLlmUnavailableFinal);
+            log.info("  Editorial rejected:  {}", countEditorialRejected);
+            log.info("  Editorial accepted:  {}", countEditorialAccepted);
+            log.info("  Persona aligned:     {}", countPersonaAligned);
+            log.info("  Persona rejected:    {}", countPersonaRejected);
+            log.info("  Written:             {}", countWritten);
+            log.info("  Critique approved:   {}", countCritiqueApproved);
+            log.info("  Critique revised:    {}", countCritiqueRevised);
+            log.info("  Critique rejected:   {}", countCritiqueRejected);
+            log.info("  Published:           {}", result.size());
+            log.info("=======================================");
 
             metrics.recordAccepted(published.size());
             if (!published.isEmpty()) {

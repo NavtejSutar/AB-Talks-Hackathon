@@ -15,11 +15,14 @@ public interface AgentRepository extends JpaRepository<Agent, UUID> {
 
     List<Agent> findByStatus(String status);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Agent a SET a.postSequence = a.postSequence + 1 WHERE a.id = :agentId")
     int incrementPostSequence(@Param("agentId") UUID agentId);
 
-    @Modifying
-    @Query(value = "UPDATE agents SET post_sequence = post_sequence + 1 WHERE id = :agentId RETURNING post_sequence", nativeQuery = true)
-    int incrementPostSequenceAndGet(@Param("agentId") UUID agentId);
+    default int incrementPostSequenceAndGet(UUID agentId) {
+        incrementPostSequence(agentId);
+        return findById(agentId)
+                .map(Agent::getPostSequence)
+                .orElseThrow(() -> new RuntimeException("Agent not found: " + agentId));
+    }
 }

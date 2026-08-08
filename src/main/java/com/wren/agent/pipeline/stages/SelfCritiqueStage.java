@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wren.agent.domain.entity.Agent;
 import com.wren.agent.domain.entity.TopicCandidate;
 import com.wren.agent.domain.repository.TopicCandidateRepository;
+import com.wren.agent.llm.GeminiRateLimiter;
 import com.wren.agent.llm.LlmProviderRouter;
 import com.wren.agent.llm.LlmRequest;
 import com.wren.agent.llm.json.StructuredJsonParser;
@@ -33,15 +34,18 @@ public class SelfCritiqueStage {
     private final ObjectMapper objectMapper;
     private final WritingStage writingStage;
     private final TopicCandidateRepository topicCandidateRepository;
+    private final GeminiRateLimiter geminiRateLimiter;
 
     public SelfCritiqueStage(LlmProviderRouter llmRouter, StructuredJsonParser jsonParser,
                              ObjectMapper objectMapper, WritingStage writingStage,
-                             TopicCandidateRepository topicCandidateRepository) {
+                             TopicCandidateRepository topicCandidateRepository,
+                             GeminiRateLimiter geminiRateLimiter) {
         this.llmRouter = llmRouter;
         this.jsonParser = jsonParser;
         this.objectMapper = objectMapper;
         this.writingStage = writingStage;
         this.topicCandidateRepository = topicCandidateRepository;
+        this.geminiRateLimiter = geminiRateLimiter;
     }
 
     /**
@@ -58,13 +62,21 @@ public class SelfCritiqueStage {
             return approved;
         }
 
+        if (geminiRateLimiter.isCircuitOpen()) {
+            log.warn("SelfCritiqueStage: Gemini circuit is OPEN — approving draft without critique");
+            approved.add(drafts.get(0));
+            return approved;
+        }
+
         // Start with the winner draft
         DraftPost currentDraft = drafts.get(0);
         int fallbackIndex = 1; // Index into ranked candidates for fallbacks
 
         for (int attempt = 0; attempt <= MAX_FALLBACK_ATTEMPTS; attempt++) {
             try {
+                geminiRateLimiter.acquirePermit();
                 CritiqueResult result = critique(currentDraft, agent);
+                geminiRateLimiter.recordSuccess();
                 log.info("SelfCritique attempt {}/{}: verdict={}, issues='{}'",
                         attempt, MAX_FALLBACK_ATTEMPTS, result.verdict, result.issues);
 
@@ -95,7 +107,13 @@ public class SelfCritiqueStage {
                     }
                 }
 
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                log.warn("SelfCritique: interrupted while acquiring rate-limit permit");
+                approved.add(currentDraft);
+                return approved;
             } catch (Exception e) {
+                geminiRateLimiter.recordFailure();
                 log.warn("SelfCritique error on attempt {} for '{}': {}", attempt, currentDraft.getTopic(), e.getMessage());
                 // On error: include draft as-is to avoid losing valid content
                 approved.add(currentDraft);

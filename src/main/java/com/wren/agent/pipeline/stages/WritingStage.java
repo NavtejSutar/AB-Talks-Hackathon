@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wren.agent.domain.entity.Agent;
 import com.wren.agent.domain.entity.Post;
+import com.wren.agent.llm.GeminiRateLimiter;
 import com.wren.agent.llm.LlmProviderRouter;
 import com.wren.agent.llm.LlmRequest;
 import com.wren.agent.llm.json.StructuredJsonParser;
@@ -29,13 +30,16 @@ public class WritingStage {
     private final StructuredJsonParser jsonParser;
     private final ObjectMapper objectMapper;
     private final MemoryRetrievalService memoryService;
+    private final GeminiRateLimiter geminiRateLimiter;
 
     public WritingStage(LlmProviderRouter llmRouter, StructuredJsonParser jsonParser,
-                        ObjectMapper objectMapper, MemoryRetrievalService memoryService) {
+                        ObjectMapper objectMapper, MemoryRetrievalService memoryService,
+                        GeminiRateLimiter geminiRateLimiter) {
         this.llmRouter = llmRouter;
         this.jsonParser = jsonParser;
         this.objectMapper = objectMapper;
         this.memoryService = memoryService;
+        this.geminiRateLimiter = geminiRateLimiter;
     }
 
     public List<DraftPost> write(PublishDecision publishDecision, Agent agent) {
@@ -46,15 +50,26 @@ public class WritingStage {
             return drafts;
         }
 
+        if (geminiRateLimiter.isCircuitOpen()) {
+            log.warn("WritingStage: Gemini circuit is OPEN — skipping writing call");
+            return drafts;
+        }
+
         ScoredCandidate winner = publishDecision.getWinner();
         List<Post> recentPosts = memoryService.getRecentPosts(agent.getId());
         String recentContext = buildRecentContext(recentPosts);
 
         try {
+            geminiRateLimiter.acquirePermit();
             DraftPost draft = writeDraft(winner, agent, recentContext);
+            geminiRateLimiter.recordSuccess();
             drafts.add(draft);
             log.info("WritingStage drafted: topic='{}'", draft.getTopic());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("WritingStage: interrupted while acquiring rate-limit permit");
         } catch (Exception e) {
+            geminiRateLimiter.recordFailure();
             log.warn("WritingStage failed for '{}': {}", winner.getCandidate().getTitle(), e.getMessage());
         }
 

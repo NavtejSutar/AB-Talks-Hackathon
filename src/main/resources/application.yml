@@ -33,12 +33,18 @@ server:
 wren:
   llm:
     priority: ${LLM_PROVIDER_PRIORITY:gemini,groq,openrouter,cerebras}
-    gemini-key: ${GEMINI_API_KEY:}
-    gemini-model: ${GEMINI_MODEL:gemini-2.5-flash}
-    gemini-rpm: ${GEMINI_REQUESTS_PER_MINUTE:5}
-    groq-key: ${GROQ_API_KEY:}
+    gemini-key:                   ${GEMINI_API_KEY:}
+    gemini-model:                 ${GEMINI_MODEL:gemini-2.5-flash}
+    gemini-rpm:                   ${GEMINI_REQUESTS_PER_MINUTE:5}
+    gemini-connect-timeout-ms:    ${GEMINI_CONNECT_TIMEOUT_MS:10000}
+    gemini-read-timeout-ms:       ${GEMINI_READ_TIMEOUT_MS:45000}
+    gemini-circuit-failure-threshold: ${GEMINI_CIRCUIT_FAILURE_THRESHOLD:2}
+    gemini-circuit-open-seconds:  ${GEMINI_CIRCUIT_OPEN_SECONDS:120}
+    groq-key:       ${GROQ_API_KEY:}
     openrouter-key: ${OPENROUTER_API_KEY:}
-    cerebras-key: ${CEREBRAS_API_KEY:}
+    cerebras-key:   ${CEREBRAS_API_KEY:}
+  pipeline:
+    max-candidates-for-llm: ${MAX_CANDIDATES_FOR_LLM:10}
   discovery:
     github-token: ${GITHUB_TOKEN:}
     nvd-key: ${NVD_API_KEY:}
