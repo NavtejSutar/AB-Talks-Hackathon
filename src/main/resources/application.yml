@@ -34,6 +34,8 @@ wren:
   llm:
     priority: ${LLM_PROVIDER_PRIORITY:gemini,groq,openrouter,cerebras}
     gemini-key: ${GEMINI_API_KEY:}
+    gemini-model: ${GEMINI_MODEL:gemini-2.5-flash}
+    gemini-rpm: ${GEMINI_REQUESTS_PER_MINUTE:5}
     groq-key: ${GROQ_API_KEY:}
     openrouter-key: ${OPENROUTER_API_KEY:}
     cerebras-key: ${CEREBRAS_API_KEY:}

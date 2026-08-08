@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wren.agent.domain.entity.Agent;
 import com.wren.agent.domain.entity.TopicCandidate;
 import com.wren.agent.domain.repository.TopicCandidateRepository;
+import com.wren.agent.llm.GeminiRateLimiter;
 import com.wren.agent.llm.LlmProviderRouter;
 import com.wren.agent.llm.LlmRequest;
 import com.wren.agent.llm.json.StructuredJsonParser;
@@ -31,13 +32,16 @@ public class EditorialScoreStage {
     private final StructuredJsonParser jsonParser;
     private final ObjectMapper objectMapper;
     private final TopicCandidateRepository topicCandidateRepository;
+    private final GeminiRateLimiter geminiRateLimiter;
 
     public EditorialScoreStage(LlmProviderRouter llmRouter, StructuredJsonParser jsonParser,
-                               ObjectMapper objectMapper, TopicCandidateRepository topicCandidateRepository) {
+                               ObjectMapper objectMapper, TopicCandidateRepository topicCandidateRepository,
+                               GeminiRateLimiter geminiRateLimiter) {
         this.llmRouter = llmRouter;
         this.jsonParser = jsonParser;
         this.objectMapper = objectMapper;
         this.topicCandidateRepository = topicCandidateRepository;
+        this.geminiRateLimiter = geminiRateLimiter;
     }
 
     /**
@@ -51,6 +55,9 @@ public class EditorialScoreStage {
 
         for (NormalizedCandidate c : candidates) {
             try {
+                // Acquire a rate-limit permit before each LLM call so we never
+                // exceed wren.llm.gemini-rpm (default 5) requests per minute.
+                geminiRateLimiter.acquirePermit();
                 ScoredCandidate sc = scoreCandidate(c, agent, tickId);
                 if (sc.isPublish() && sc.getConfidence() >= CONFIDENCE_THRESHOLD) {
                     scored.add(sc);
