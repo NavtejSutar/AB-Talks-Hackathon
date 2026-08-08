@@ -21,7 +21,7 @@ public class GeminiProvider implements LlmProvider {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiProvider.class);
     private static final String PROVIDER_NAME = "gemini";
-    private static final String GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=";
+    private static final String GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=";
 
     @Value("${wren.llm.gemini-key:}")
     private String apiKey;
