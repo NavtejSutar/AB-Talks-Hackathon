@@ -161,8 +161,7 @@ public class PipelineOrchestrator {
 
             // Update agent timestamps
             Instant now = Instant.now();
-            agent.setLastTickAt(now);
-            agentRepository.save(agent);
+            agentRepository.updateLastTickAt(agent.getId(), now);
 
             // Output detailed metrics for verification / logging
             List<TopicCandidate> finalTickCandidates = topicCandidateRepository.findByAgentIdAndTickId(agent.getId(), tickId);

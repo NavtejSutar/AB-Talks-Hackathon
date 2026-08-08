@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,6 +19,14 @@ public interface AgentRepository extends JpaRepository<Agent, UUID> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Agent a SET a.postSequence = a.postSequence + 1 WHERE a.id = :agentId")
     int incrementPostSequence(@Param("agentId") UUID agentId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Agent a SET a.lastTickAt = :lastTickAt WHERE a.id = :agentId")
+    int updateLastTickAt(@Param("agentId") UUID agentId, @Param("lastTickAt") Instant lastTickAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Agent a SET a.nextTickAt = :nextTickAt WHERE a.id = :agentId")
+    int updateNextTickAt(@Param("agentId") UUID agentId, @Param("nextTickAt") Instant nextTickAt);
 
     default int incrementPostSequenceAndGet(UUID agentId) {
         incrementPostSequence(agentId);

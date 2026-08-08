@@ -1,16 +1,5 @@
 package com.wren.agent.scheduler;
 
-import com.wren.agent.domain.entity.Agent;
-import com.wren.agent.domain.repository.AgentRepository;
-import com.wren.agent.pipeline.PipelineOrchestrator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import org.springframework.stereotype.Component;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -19,6 +8,22 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.wren.agent.domain.entity.Agent;
+import com.wren.agent.domain.repository.AgentRepository;
+import com.wren.agent.pipeline.PipelineOrchestrator;
 
 @Component
 public class SchedulerRegistrar {
@@ -29,6 +34,7 @@ public class SchedulerRegistrar {
     private final AgentRepository agentRepository;
     private final PipelineOrchestrator orchestrator;
     private final TickLockManager lockManager;
+    private final PlatformTransactionManager transactionManager;
     private final Random random = new Random();
     private final ConcurrentHashMap<UUID, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
@@ -48,11 +54,13 @@ public class SchedulerRegistrar {
             ThreadPoolTaskScheduler taskScheduler,
             AgentRepository agentRepository,
             PipelineOrchestrator orchestrator,
-            TickLockManager lockManager) {
+            TickLockManager lockManager,
+            PlatformTransactionManager transactionManager) {
         this.taskScheduler = taskScheduler;
         this.agentRepository = agentRepository;
         this.orchestrator = orchestrator;
         this.lockManager = lockManager;
+        this.transactionManager = transactionManager;
     }
 
     /**
@@ -106,8 +114,11 @@ public class SchedulerRegistrar {
         }
 
         // Update next_tick_at in database
-        agent.setNextTickAt(startTime);
-        agentRepository.save(agent);
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.execute(status -> {
+            agentRepository.updateNextTickAt(agent.getId(), startTime);
+            return null;
+        });
 
         AgentTickJob job = new AgentTickJob(
                 agent.getId(),
@@ -146,8 +157,11 @@ public class SchedulerRegistrar {
         log.info("SchedulerRegistrar: Scheduling next tick for agent {} at {} (in {} minutes)",
                 agentId, nextTickAt, Duration.between(Instant.now(), nextTickAt).toMinutes());
 
-        agent.setNextTickAt(nextTickAt);
-        agentRepository.save(agent);
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.execute(status -> {
+            agentRepository.updateNextTickAt(agentId, nextTickAt);
+            return null;
+        });
 
         AgentTickJob job = new AgentTickJob(
                 agentId,

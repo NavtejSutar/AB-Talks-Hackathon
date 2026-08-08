@@ -5,9 +5,9 @@ import com.wren.agent.domain.repository.AgentRepository;
 import com.wren.agent.pipeline.PipelineOrchestrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
 import org.mockito.ArgumentCaptor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +25,7 @@ public class SchedulerRegistrarTest {
     private AgentRepository agentRepository;
     private PipelineOrchestrator orchestrator;
     private TickLockManager lockManager;
+    private PlatformTransactionManager transactionManager;
     private SchedulerRegistrar registrar;
 
     @BeforeEach
@@ -33,12 +34,13 @@ public class SchedulerRegistrarTest {
         agentRepository = mock(AgentRepository.class);
         orchestrator = mock(PipelineOrchestrator.class);
         lockManager = mock(TickLockManager.class);
+        transactionManager = mock(PlatformTransactionManager.class);
 
         @SuppressWarnings("unchecked")
         ScheduledFuture<Object> mockFuture = mock(ScheduledFuture.class);
         doReturn(mockFuture).when(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
 
-        registrar = new SchedulerRegistrar(taskScheduler, agentRepository, orchestrator, lockManager);
+        registrar = new SchedulerRegistrar(taskScheduler, agentRepository, orchestrator, lockManager, transactionManager);
     }
 
     @Test
@@ -52,7 +54,7 @@ public class SchedulerRegistrarTest {
 
         // Verify taskScheduler was called twice (once per active agent)
         verify(taskScheduler, times(2)).schedule(any(Runnable.class), any(Instant.class));
-        verify(agentRepository, times(2)).save(any(Agent.class));
+        verify(agentRepository, times(2)).updateNextTickAt(any(UUID.class), any(Instant.class));
     }
 
     @Test
@@ -64,12 +66,7 @@ public class SchedulerRegistrarTest {
 
         registrar.scheduleNextTick(agentId);
 
-        ArgumentCaptor<Agent> agentCaptor = ArgumentCaptor.forClass(Agent.class);
-        verify(agentRepository).save(agentCaptor.capture());
-
-        Agent savedAgent = agentCaptor.getValue();
-        assertThat(savedAgent.getNextTickAt()).isNotNull();
-        assertThat(savedAgent.getNextTickAt()).isAfter(Instant.now());
+        verify(agentRepository).updateNextTickAt(eq(agentId), any(Instant.class));
         verify(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
     }
 }
