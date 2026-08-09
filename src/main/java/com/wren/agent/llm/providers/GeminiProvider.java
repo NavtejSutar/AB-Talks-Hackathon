@@ -44,7 +44,7 @@ public class GeminiProvider implements LlmProvider {
     @Value("${wren.llm.gemini-key:}")
     private String apiKey;
 
-    @Value("${wren.llm.gemini-model:gemini-2.5-flash}")
+    @Value("${wren.llm.gemini-model:gemini-3.6-flash}")
     private String geminiModel;
 
     @Value("${wren.llm.gemini-connect-timeout-ms:10000}")
@@ -54,9 +54,9 @@ public class GeminiProvider implements LlmProvider {
     private int readTimeoutMs;
 
     // One retry on 429/503, then give up (circuit-breaker in GeminiRateLimiter handles repeated failures)
-    private static final int MAX_RETRIES = 1;
-    private static final long RETRY_429_DEFAULT_MS = 20_000L;  // fallback if no Retry-After header
-    private static final long RETRY_503_MS = 10_000L;
+    private static final int MAX_RETRIES = 3;
+    private static final long RETRY_429_DEFAULT_MS = 5_000L;  // fallback if no Retry-After header
+    private static final long RETRY_503_MS = 3_000L;
 
     private final ObjectMapper objectMapper;
 

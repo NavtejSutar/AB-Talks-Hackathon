@@ -6,7 +6,7 @@ import com.wren.agent.pipeline.PipelineOrchestrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Instant;
@@ -21,7 +21,7 @@ import static org.mockito.Mockito.*;
 
 public class SchedulerRegistrarTest {
 
-    private ThreadPoolTaskScheduler taskScheduler;
+    private TaskScheduler taskScheduler;
     private AgentRepository agentRepository;
     private PipelineOrchestrator orchestrator;
     private TickLockManager lockManager;
@@ -30,7 +30,7 @@ public class SchedulerRegistrarTest {
 
     @BeforeEach
     public void setUp() {
-        taskScheduler = mock(ThreadPoolTaskScheduler.class);
+        taskScheduler = mock(TaskScheduler.class);
         agentRepository = mock(AgentRepository.class);
         orchestrator = mock(PipelineOrchestrator.class);
         lockManager = mock(TickLockManager.class);

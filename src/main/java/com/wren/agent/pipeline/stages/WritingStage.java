@@ -78,7 +78,7 @@ public class WritingStage {
 
     private DraftPost writeDraft(ScoredCandidate sc, Agent agent, String recentContext) throws Exception {
         String prompt = buildPrompt(sc, agent, recentContext);
-        LlmRequest request = new LlmRequest(agent.getSystemPrompt(), prompt);
+        LlmRequest request = new LlmRequest(agent.getSystemPrompt(), prompt, 0.3, 2048);
         LlmProviderRouter.RouterResult routerResult = llmRouter.complete(request);
         String raw = routerResult.getResponse().getContent();
         String json = jsonParser.extractJson(raw);

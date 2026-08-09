@@ -16,6 +16,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.wren.agent.pipeline.PipelineOrchestrator;
+import com.wren.agent.domain.entity.Post;
+
 @RestController
 @RequestMapping("/api/agent")
 @CrossOrigin(origins = "*")
@@ -24,14 +27,25 @@ public class DebugController {
     private final AgentRepository agentRepository;
     private final PipelineMetricsRepository metricsRepository;
     private final TopicCandidateRepository topicCandidateRepository;
+    private final PipelineOrchestrator orchestrator;
 
     public DebugController(
             AgentRepository agentRepository,
             PipelineMetricsRepository metricsRepository,
-            TopicCandidateRepository topicCandidateRepository) {
+            TopicCandidateRepository topicCandidateRepository,
+            PipelineOrchestrator orchestrator) {
         this.agentRepository = agentRepository;
         this.metricsRepository = metricsRepository;
         this.topicCandidateRepository = topicCandidateRepository;
+        this.orchestrator = orchestrator;
+    }
+
+    @PostMapping("/tick")
+    public ResponseEntity<List<Post>> triggerTick(@RequestParam("agentId") UUID agentId) {
+        Agent agent = agentRepository.findById(agentId)
+                .orElseThrow(() -> new AgentNotFoundException("Agent with ID " + agentId + " not found"));
+        List<Post> published = orchestrator.runTick(agent);
+        return ResponseEntity.ok(published);
     }
 
     @GetMapping("/metrics")

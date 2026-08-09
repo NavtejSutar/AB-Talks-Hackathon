@@ -193,7 +193,7 @@ public class SelfCritiqueStage {
                 draft.getConfidence() != null ? draft.getConfidence() : 0
         );
 
-        LlmRequest request = new LlmRequest(agent.getSystemPrompt(), prompt);
+        LlmRequest request = new LlmRequest(agent.getSystemPrompt(), prompt, 0.2, 2048);
         LlmProviderRouter.RouterResult routerResult = llmRouter.complete(request);
         String raw = routerResult.getResponse().getContent();
         String json = jsonParser.extractJson(raw);

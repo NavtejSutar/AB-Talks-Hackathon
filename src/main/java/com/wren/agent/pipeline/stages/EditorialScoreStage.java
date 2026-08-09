@@ -97,7 +97,7 @@ public class EditorialScoreStage {
 
         // Build and execute the single batch call
         String prompt = buildBatchPrompt(idToCandidate, agent);
-        LlmRequest request = new LlmRequest(agent.getSystemPrompt(), prompt, 0.2, 2000);
+        LlmRequest request = new LlmRequest(agent.getSystemPrompt(), prompt, 0.2, 4096);
 
         String rawResponse;
         try {
@@ -176,11 +176,13 @@ public class EditorialScoreStage {
                   "confidence": <0-100 integer>,
                   "publish": <true|false>,
                   "is_followup_of_topic_key": "<topic_key or null>",
-                  "reason": "<specific, non-generic reason>"
+                  "reason": "<short 1-sentence reason>"
                 }
 
                 Only set publish=true if score >= 70 AND confidence >= 70.
                 If multiple candidates overlap in subject, keep the highest score and set publish=false on the rest.
+                DEDUPLICATION / REPEATED TOPICS RULE:
+                If a candidate is marked `possible_followup: yes`, set publish=false and score <= 40 UNLESS the article reports a major NEW vulnerability exploit, CVE disclosure, or official security update not previously covered. Do NOT republish the same paper or topic.
                 Output ONLY the JSON array. No preamble, no explanation.
                 """);
 

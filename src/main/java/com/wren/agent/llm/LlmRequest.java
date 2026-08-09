@@ -15,7 +15,7 @@ public class LlmRequest {
     }
 
     public LlmRequest(String systemPrompt, String userPrompt) {
-        this(systemPrompt, userPrompt, 0.3, 1000);
+        this(systemPrompt, userPrompt, 0.3, 2048);
     }
 
     public String getSystemPrompt() { return systemPrompt; }

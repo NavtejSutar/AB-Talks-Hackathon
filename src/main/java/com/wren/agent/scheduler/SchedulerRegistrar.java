@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -30,7 +30,7 @@ public class SchedulerRegistrar {
 
     private static final Logger log = LoggerFactory.getLogger(SchedulerRegistrar.class);
 
-    private final ThreadPoolTaskScheduler taskScheduler;
+    private final TaskScheduler taskScheduler;
     private final AgentRepository agentRepository;
     private final PipelineOrchestrator orchestrator;
     private final TickLockManager lockManager;
@@ -51,7 +51,7 @@ public class SchedulerRegistrar {
     private int maxIntervalMinutes;
 
     public SchedulerRegistrar(
-            ThreadPoolTaskScheduler taskScheduler,
+            TaskScheduler taskScheduler,
             AgentRepository agentRepository,
             PipelineOrchestrator orchestrator,
             TickLockManager lockManager,

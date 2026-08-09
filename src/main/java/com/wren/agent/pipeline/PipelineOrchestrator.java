@@ -105,7 +105,7 @@ public class PipelineOrchestrator {
             normalized.addAll(resumed);
 
             // Stage 3: Deduplication
-            List<NormalizedCandidate> unique = deduplicationStage.deduplicate(normalized, agent.getId());
+            List<NormalizedCandidate> unique = deduplicationStage.deduplicate(normalized, agent.getId(), tickId);
 
             // Stage 4: Credibility check
             List<NormalizedCandidate> credible = credibilityCheckStage.assessCredibility(unique, agent.getId(), tickId);
@@ -247,7 +247,8 @@ public class PipelineOrchestrator {
      * so they can resume processing in the current tick.
      */
     private List<NormalizedCandidate> resumeQueuedCandidates(UUID agentId, UUID currentTickId) {
-        List<TopicCandidate> queued = topicCandidateRepository.findByAgentIdAndDecision(agentId, "QUEUED");
+        List<TopicCandidate> queued = new ArrayList<>(topicCandidateRepository.findByAgentIdAndDecision(agentId, "QUEUED"));
+        queued.addAll(topicCandidateRepository.findByAgentIdAndDecision(agentId, "LLM_UNAVAILABLE"));
         if (queued.isEmpty()) {
             return List.of();
         }
