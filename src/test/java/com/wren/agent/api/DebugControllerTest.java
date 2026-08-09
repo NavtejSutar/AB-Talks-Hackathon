@@ -8,6 +8,7 @@ import com.wren.agent.domain.entity.TopicCandidate;
 import com.wren.agent.domain.repository.AgentRepository;
 import com.wren.agent.domain.repository.PipelineMetricsRepository;
 import com.wren.agent.domain.repository.TopicCandidateRepository;
+import com.wren.agent.pipeline.PipelineOrchestrator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -39,6 +40,9 @@ public class DebugControllerTest {
 
     @MockBean
     private TopicCandidateRepository topicCandidateRepository;
+
+    @MockBean
+    private PipelineOrchestrator orchestrator;
 
     private final String debugToken = "wren-debug-secret-2026";
 

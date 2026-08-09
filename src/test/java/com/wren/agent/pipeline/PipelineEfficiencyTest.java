@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wren.agent.domain.entity.Agent;
 import com.wren.agent.domain.repository.TopicCandidateRepository;
 import com.wren.agent.llm.GeminiRateLimiter;
+import com.wren.agent.llm.LlmProvider;
 import com.wren.agent.llm.LlmProviderRouter;
 import com.wren.agent.llm.LlmRequest;
 import com.wren.agent.llm.LlmResponse;
@@ -95,6 +96,11 @@ class PipelineEfficiencyTest {
         LlmResponse llmResponse = new LlmResponse(batchJson, "gemini", 100);
         LlmProviderRouter.RouterResult routerResult = new LlmProviderRouter.RouterResult(llmResponse, 0);
 
+        // ── Stub provider availability so the stage doesn't exit early ──
+        LlmProvider availableProvider = mock(LlmProvider.class);
+        when(availableProvider.isAvailable()).thenReturn(true);
+        when(router.getOrderedProviders()).thenReturn(List.of(availableProvider));
+
         when(parser.extractJson(any())).thenAnswer(inv -> inv.getArgument(0));
         when(router.complete(any())).thenReturn(routerResult);
 
@@ -119,6 +125,9 @@ class PipelineEfficiencyTest {
 
         String batchJson = buildBatchJsonResponse(23);
         LlmResponse llmResponse = new LlmResponse(batchJson, "gemini", 100);
+        LlmProvider availableProvider = mock(LlmProvider.class);
+        when(availableProvider.isAvailable()).thenReturn(true);
+        when(router.getOrderedProviders()).thenReturn(List.of(availableProvider));
         when(parser.extractJson(any())).thenAnswer(inv -> inv.getArgument(0));
         when(router.complete(any())).thenReturn(new LlmProviderRouter.RouterResult(llmResponse, 0));
 
@@ -139,6 +148,9 @@ class PipelineEfficiencyTest {
         TopicCandidateRepository repo = mock(TopicCandidateRepository.class);
         GeminiRateLimiter limiter = new GeminiRateLimiter(100, 10, 120);
 
+        LlmProvider availableProvider = mock(LlmProvider.class);
+        when(availableProvider.isAvailable()).thenReturn(true);
+        when(router.getOrderedProviders()).thenReturn(List.of(availableProvider));
         when(router.complete(any())).thenThrow(new RuntimeException("HTTP 429 rate limited"));
 
         EditorialScoreStage stage = new EditorialScoreStage(router, parser, mapper, repo, limiter);
@@ -166,6 +178,10 @@ class PipelineEfficiencyTest {
         ObjectMapper mapper = new ObjectMapper();
         TopicCandidateRepository repo = mock(TopicCandidateRepository.class);
         GeminiRateLimiter limiter = new GeminiRateLimiter(100, 1, 120);
+        // Stub provider availability so stage passes the provider check and reaches the circuit check
+        LlmProvider availableProvider = mock(LlmProvider.class);
+        when(availableProvider.isAvailable()).thenReturn(true);
+        when(router.getOrderedProviders()).thenReturn(List.of(availableProvider));
         limiter.recordFailure(); // open the circuit
 
         EditorialScoreStage stage = new EditorialScoreStage(router, parser, mapper, repo, limiter);

@@ -17,9 +17,17 @@ target/
 
 ### Secrets & Environment ###
 .env
+.env.*
 *.env
 *.key
 *.pem
+application-local.yml
+application-local.properties
+
+### Local H2 Database Files ###
+*.mv.db
+*.trace.db
+wrendb*
 
 ### Logs ###
 *.log

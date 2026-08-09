@@ -119,11 +119,34 @@ public class WritingStage {
         String raw = routerResult.getResponse().getContent();
         String json = jsonParser.extractJson(raw);
 
-        JsonNode node = objectMapper.readTree(json);
+        JsonNode node;
+        try {
+            node = objectMapper.readTree(json);
+        } catch (Exception parseEx) {
+            // The LLM response was truncated mid-JSON (common when hitting token limits).
+            // Attempt to repair the JSON by closing open strings and objects.
+            log.warn("WritingStage: LLM response JSON appears truncated — attempting repair. Error: {}", parseEx.getMessage());
+            String repaired = repairTruncatedJson(json);
+            try {
+                node = objectMapper.readTree(repaired);
+                log.info("WritingStage: JSON repair succeeded");
+            } catch (Exception repairEx) {
+                log.warn("WritingStage: JSON repair also failed — using offline fallback. Raw snippet: {}",
+                        json.length() > 200 ? json.substring(0, 200) + "..." : json);
+                throw new IllegalStateException("LLM response could not be parsed even after repair: " + parseEx.getMessage(), parseEx);
+            }
+        }
+
         String topic = node.path("topic").asText("").trim();
         String post = node.path("post").asText("").trim();
         String rationale = node.path("rationale").asText("").trim();
         Integer confidence = node.path("confidence").asInt(0);
+
+        // If post field is empty due to truncation, use the topic as a minimal post
+        if (post.isBlank()) {
+            post = topic.isBlank() ? sc.getCandidate().getTitle() : topic;
+            log.warn("WritingStage: 'post' field was empty after parse — using topic/title as fallback content");
+        }
 
         List<String> sources = new ArrayList<>();
         JsonNode sourcesNode = node.path("sources");
@@ -139,6 +162,57 @@ public class WritingStage {
         confidence = Math.max(0, Math.min(100, confidence));
 
         return new DraftPost(sc, topic, post, rationale, sources, confidence, raw);
+    }
+
+    /**
+     * Attempts to repair a truncated JSON string by:
+     * 1. If inside an open string value — close the string with a quote
+     * 2. Close any unclosed JSON objects with }
+     *
+     * This handles the common case where Gemini returns a JSON object with the last
+     * field value cut off mid-sentence due to token limits.
+     */
+    private String repairTruncatedJson(String json) {
+        if (json == null || json.isBlank()) return "{}";
+        String trimmed = json.trim();
+
+        // Count unclosed characters
+        int openBraces = 0;
+        boolean inString = false;
+        boolean escaped = false;
+
+        for (char c : trimmed.toCharArray()) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (c == '\\' && inString) {
+                escaped = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (!inString) {
+                if (c == '{') openBraces++;
+                else if (c == '}') openBraces--;
+            }
+        }
+
+        StringBuilder repaired = new StringBuilder(trimmed);
+
+        // If we're in the middle of a string, close it
+        if (inString) {
+            repaired.append("\"");
+        }
+
+        // Close any open braces
+        for (int i = 0; i < openBraces; i++) {
+            repaired.append("}");
+        }
+
+        return repaired.toString();
     }
 
     private String buildPrompt(ScoredCandidate sc, Agent agent, String recentContext) {

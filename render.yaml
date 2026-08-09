@@ -1,0 +1,71 @@
+# render.yaml — Render Web Service configuration for Wren Agent
+# Secrets must be configured directly in the Render dashboard under Environment Variables.
+# Do NOT put actual secret values in this file.
+
+services:
+  - type: web
+    name: wren-agent
+    runtime: java
+    plan: free  # upgrade to starter/standard for production
+    region: singapore  # choose closest to your Supabase region
+    branch: main
+
+    buildCommand: mvn clean package -DskipTests
+    startCommand: java -jar target/wren-agent-0.0.1-SNAPSHOT.jar
+
+    healthCheckPath: /health
+
+    # Render automatically provides PORT env var; Spring Boot reads ${PORT:8080}
+    # No manual port mapping needed.
+
+    envVars:
+      # Spring Profile — activates application-prod.yml
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+
+      # ── Database (Supabase PostgreSQL) ──────────────────────────────────────
+      # Set these in Render dashboard → Environment Variables
+      # Use the Transaction Pooler JDBC URL from Supabase Settings → Database
+      # Example: jdbc:postgresql://aws-0-ap-south-1.pooler.supabase.com:5432/postgres?prepareThreshold=0&sslmode=require
+      - key: SPRING_DATASOURCE_URL
+        sync: false  # value set in Render dashboard, not here
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+
+      # ── LLM Providers ───────────────────────────────────────────────────────
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+
+      # LLM provider priority order (comma-separated)
+      - key: LLM_PROVIDER_PRIORITY
+        value: gemini,groq,openrouter,cerebras
+
+      # Gemini rate limit — free tier: 5 RPM; paid tier: increase as needed
+      - key: GEMINI_REQUESTS_PER_MINUTE
+        value: "5"
+
+      # ── Discovery API Keys ──────────────────────────────────────────────────
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: NVD_API_KEY
+        sync: false
+
+      # ── Internal Security ───────────────────────────────────────────────────
+      - key: DEBUG_TOKEN
+        sync: false
+
+      # ── Scheduler ──────────────────────────────────────────────────────────
+      # Autonomous pipeline runs every ~45-90 minutes per agent (managed by SchedulerRegistrar)
+      # Set to false to disable the autonomous scheduler (e.g., for debugging)
+      - key: SCHEDULER_ENABLED
+        value: "true"

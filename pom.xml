@@ -47,11 +47,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- H2 Database for local dev/test -->
+        <!-- H2 Database for tests only — NOT loaded in production -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
 
         <!-- Flyway Database Migrations -->

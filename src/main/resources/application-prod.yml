@@ -1,5 +1,71 @@
+# Production profile — Supabase PostgreSQL
+# All secrets come from environment variables — never hardcoded here.
+#
+# Required environment variables on Render:
+#   SPRING_DATASOURCE_URL      jdbc:postgresql://<host>:<port>/<db>?prepareThreshold=0&sslmode=require
+#   SPRING_DATASOURCE_USERNAME  postgres (or postgres.<project-ref> for pooler)
+#   SPRING_DATASOURCE_PASSWORD  <your Supabase DB password>
+
 spring:
   datasource:
+    # URL, username, and password are injected from environment variables.
+    # The main application.yml already resolves them via ${SPRING_DATASOURCE_*}.
+    # This profile overrides the driver and disables the H2 fallback.
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+      # Must be less than Supabase's server-side idle timeout (default: 600s for pooler)
+      max-lifetime: 540000
+      # keepalive-time prevents idle connections from being silently dropped
+      keepalive-time: 60000
+      # Validate connections before handing out of pool
+      connection-test-query: SELECT 1
+
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      # validate: checks that DB schema matches JPA entities; does NOT modify schema
+      # Safe for production — will not drop or recreate tables
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+        # Needed for UUID auto-generation with PostgreSQL
+        jdbc:
+          time_zone: UTC
+    show-sql: false
+    # Disable open-session-in-view — not needed and causes performance warnings
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Flyway will detect and apply any pending migrations (V1, V2, V3) if not yet applied.
+    # If already applied, it validates and skips. Production data is NOT deleted.
+    baseline-on-migrate: false
+
+  # Disable H2 console entirely in production
+  h2:
+    console:
+      enabled: false
+
+server:
+  port: ${PORT:8080}
+  # Compress responses for better performance on Render
+  compression:
+    enabled: true
+    mime-types: application/json,text/plain
+    min-response-size: 1024
+
+wren:
+  llm:
+    # Gemini rate limit — free tier is 5 RPM; increase if on paid plan
+    gemini-rpm: ${GEMINI_REQUESTS_PER_MINUTE:5}
+    gemini-circuit-failure-threshold: ${GEMINI_CIRCUIT_FAILURE_THRESHOLD:3}
+    gemini-circuit-open-seconds: ${GEMINI_CIRCUIT_OPEN_SECONDS:120}
+  scheduler:
+    # Enable autonomous scheduler in production
+    enabled: ${SCHEDULER_ENABLED:true}

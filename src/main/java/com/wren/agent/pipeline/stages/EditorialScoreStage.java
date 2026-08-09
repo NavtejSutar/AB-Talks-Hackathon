@@ -89,14 +89,16 @@ public class EditorialScoreStage {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             log.warn("EditorialScoreStage: interrupted while acquiring rate-limit permit; marking all LLM_UNAVAILABLE");
-            return fallbackScore(candidates, agent, tickId);
+            markAllUnavailable(idToCandidate, agent, tickId, "Rate limit permit interrupted");
+            return List.of();
         }
 
         // Check if circuit is open before even attempting the call
         if (geminiRateLimiter.isCircuitOpen()) {
             log.warn("EditorialScoreStage: Gemini circuit is OPEN — skipping batch, marking {} candidates LLM_UNAVAILABLE",
                     candidates.size());
-            return fallbackScore(candidates, agent, tickId);
+            markAllUnavailable(idToCandidate, agent, tickId, "Gemini circuit breaker is open");
+            return List.of();
         }
 
         // Build and execute the single batch call
@@ -114,7 +116,8 @@ public class EditorialScoreStage {
             log.warn("EditorialScoreStage: batch LLM call FAILED — {} candidates marked LLM_UNAVAILABLE. Reason: {}",
                     candidates.size(), e.getMessage());
             geminiRateLimiter.recordFailure();
-            return fallbackScore(candidates, agent, tickId);
+            markAllUnavailable(idToCandidate, agent, tickId, "LLM batch call failed: " + e.getMessage());
+            return List.of();
         }
 
         // Parse the JSON array response and map back to candidates
