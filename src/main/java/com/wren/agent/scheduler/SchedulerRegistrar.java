@@ -44,10 +44,10 @@ public class SchedulerRegistrar {
     @Value("${wren.scheduler.enabled:true}")
     private boolean schedulerEnabled = true;
 
-    @Value("${wren.scheduler.min-interval-minutes:45}")
+    @Value("${wren.scheduler.min-interval-minutes:1}")
     private int minIntervalMinutes;
 
-    @Value("${wren.scheduler.max-interval-minutes:90}")
+    @Value("${wren.scheduler.max-interval-minutes:2}")
     private int maxIntervalMinutes;
 
     public SchedulerRegistrar(

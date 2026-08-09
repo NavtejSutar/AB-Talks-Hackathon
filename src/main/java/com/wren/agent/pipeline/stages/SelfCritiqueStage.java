@@ -62,6 +62,14 @@ public class SelfCritiqueStage {
             return approved;
         }
 
+        if (llmRouter.getOrderedProviders().stream().noneMatch(provider -> provider.isAvailable())) {
+            log.warn("SelfCritiqueStage: no LLM providers available; approving draft without critique");
+            approved.add(drafts.get(0));
+            persistDecision(drafts.get(0), agent.getId(), tickId, "PUBLISH", "SELF_CRITIQUE",
+                    "Offline approval because no LLM provider was available");
+            return approved;
+        }
+
         if (geminiRateLimiter.isCircuitOpen()) {
             log.warn("SelfCritiqueStage: Gemini circuit is OPEN — approving draft without critique");
             approved.add(drafts.get(0));

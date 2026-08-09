@@ -68,6 +68,12 @@ public class EditorialScoreStage {
             return List.of();
         }
 
+        if (llmRouter.getOrderedProviders().stream().noneMatch(provider -> provider.isAvailable())) {
+            log.warn("EditorialScoreStage: no LLM providers available; using offline fallback scoring for {} candidates",
+                    candidates.size());
+            return fallbackScore(candidates, agent, tickId);
+        }
+
         // Assign stable short IDs: c1, c2, ... cN (simpler than UUIDs in LLM prompts)
         Map<String, NormalizedCandidate> idToCandidate = new LinkedHashMap<>();
         int seq = 1;
@@ -83,16 +89,14 @@ public class EditorialScoreStage {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             log.warn("EditorialScoreStage: interrupted while acquiring rate-limit permit; marking all LLM_UNAVAILABLE");
-            markAllUnavailable(idToCandidate, agent, tickId, "Rate limiter interrupted");
-            return List.of();
+            return fallbackScore(candidates, agent, tickId);
         }
 
         // Check if circuit is open before even attempting the call
         if (geminiRateLimiter.isCircuitOpen()) {
             log.warn("EditorialScoreStage: Gemini circuit is OPEN — skipping batch, marking {} candidates LLM_UNAVAILABLE",
                     candidates.size());
-            markAllUnavailable(idToCandidate, agent, tickId, "Gemini circuit breaker open");
-            return List.of();
+            return fallbackScore(candidates, agent, tickId);
         }
 
         // Build and execute the single batch call
@@ -110,8 +114,7 @@ public class EditorialScoreStage {
             log.warn("EditorialScoreStage: batch LLM call FAILED — {} candidates marked LLM_UNAVAILABLE. Reason: {}",
                     candidates.size(), e.getMessage());
             geminiRateLimiter.recordFailure();
-            markAllUnavailable(idToCandidate, agent, tickId, "LLM call failed: " + e.getMessage());
-            return List.of();
+            return fallbackScore(candidates, agent, tickId);
         }
 
         // Parse the JSON array response and map back to candidates
@@ -284,6 +287,47 @@ public class EditorialScoreStage {
         }
         log.info("EditorialScoreStage: {} candidates marked {} ({})",
                 idToCandidate.size(), DECISION_LLM_UNAVAILABLE, reason);
+    }
+
+    private List<ScoredCandidate> fallbackScore(List<NormalizedCandidate> candidates, Agent agent, UUID tickId) {
+        List<ScoredCandidate> passed = new ArrayList<>();
+
+        for (NormalizedCandidate c : candidates) {
+            int score = fallbackScoreValue(c);
+            int confidence = Math.max(70, score);
+            boolean publish = score >= CONFIDENCE_THRESHOLD;
+            String topic = (c.getTitle() != null && !c.getTitle().isBlank()) ? c.getTitle() : "Security topic";
+            String reason = "Offline fallback scoring used because no LLM provider was available";
+
+            if (publish) {
+                passed.add(new ScoredCandidate(c, score, reason, confidence, true, topic, null));
+                persistDecision(c, agent, tickId, score, confidence, true,
+                        reason, "EDITORIAL_SCORE", reason, "ACCEPTED");
+            } else {
+                persistDecision(c, agent, tickId, score, confidence, false,
+                        reason, "EDITORIAL_SCORE", reason + " (below threshold)", "REJECTED");
+            }
+        }
+
+        log.info("EditorialScoreStage: offline fallback produced {}/{} publishable candidates",
+                passed.size(), candidates.size());
+        return passed;
+    }
+
+    private int fallbackScoreValue(NormalizedCandidate c) {
+        String haystack = ((c.getTitle() != null ? c.getTitle() : "") + " "
+                + (c.getSummary() != null ? c.getSummary() : "")).toLowerCase();
+
+        int score = 70;
+        if (haystack.contains("cve")) score += 8;
+        if (haystack.contains("prompt injection")) score += 8;
+        if (haystack.contains("jailbreak")) score += 8;
+        if (haystack.contains("adversarial")) score += 6;
+        if (haystack.contains("llm") || haystack.contains("ai agent")) score += 4;
+        if ("A".equals(c.getCredibilityTier())) score += 5;
+        if (c.isPossibleFollowup()) score -= 10;
+
+        return Math.max(0, Math.min(95, score));
     }
 
     private void persistDecision(NormalizedCandidate c, Agent agent, UUID tickId,

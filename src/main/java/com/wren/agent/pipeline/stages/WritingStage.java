@@ -50,8 +50,15 @@ public class WritingStage {
             return drafts;
         }
 
+        if (llmRouter.getOrderedProviders().stream().noneMatch(provider -> provider.isAvailable())) {
+            log.warn("WritingStage: no LLM providers available; generating offline fallback draft");
+            drafts.add(buildOfflineDraft(publishDecision.getWinner(), agent));
+            return drafts;
+        }
+
         if (geminiRateLimiter.isCircuitOpen()) {
-            log.warn("WritingStage: Gemini circuit is OPEN — skipping writing call");
+            log.warn("WritingStage: Gemini circuit is OPEN — generating offline fallback draft");
+            drafts.add(buildOfflineDraft(publishDecision.getWinner(), agent));
             return drafts;
         }
 
@@ -68,12 +75,41 @@ public class WritingStage {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             log.warn("WritingStage: interrupted while acquiring rate-limit permit");
+            drafts.add(buildOfflineDraft(winner, agent));
         } catch (Exception e) {
             geminiRateLimiter.recordFailure();
             log.warn("WritingStage failed for '{}': {}", winner.getCandidate().getTitle(), e.getMessage());
+            drafts.add(buildOfflineDraft(winner, agent));
         }
 
         return drafts;
+    }
+
+    private DraftPost buildOfflineDraft(ScoredCandidate sc, Agent agent) {
+        String topic = deriveTopic(sc);
+        String title = sc.getCandidate().getTitle();
+        String summary = sc.getCandidate().getSummary() != null ? sc.getCandidate().getSummary() : title;
+        String source = sc.getCandidate().getUrl();
+        String post = String.format(
+                "%s\n\nThis item points to %s and highlights why it matters for agentic and ML security. %s\n\nThe practical question is whether teams are actually handling this class of issue before it gets reused or scaled.",
+                title,
+                source,
+                summary != null && !summary.isBlank() ? summary : "It is relevant because it maps to the agent's security focus.");
+        String rationale = "Offline fallback draft generated because no LLM provider was available";
+        List<String> sources = new ArrayList<>();
+        sources.add(source);
+        Integer confidence = Math.max(70, Math.min(95, sc.getEditorialScore()));
+        return new DraftPost(sc, topic, post, rationale, sources, confidence, "offline-fallback");
+    }
+
+    private String deriveTopic(ScoredCandidate sc) {
+        if (sc.getTopic() != null && !sc.getTopic().isBlank()) {
+            return sc.getTopic();
+        }
+        if (sc.getCandidate().getTitle() != null && !sc.getCandidate().getTitle().isBlank()) {
+            return sc.getCandidate().getTitle();
+        }
+        return "Security topic";
     }
 
     private DraftPost writeDraft(ScoredCandidate sc, Agent agent, String recentContext) throws Exception {

@@ -247,8 +247,9 @@ public class PipelineOrchestrator {
      * so they can resume processing in the current tick.
      */
     private List<NormalizedCandidate> resumeQueuedCandidates(UUID agentId, UUID currentTickId) {
+        // Only resume true queue retries here. LLM outages are handled by fresh discovery on the next tick,
+        // otherwise the same unavailable batch can be replayed forever and starve the feed.
         List<TopicCandidate> queued = new ArrayList<>(topicCandidateRepository.findByAgentIdAndDecision(agentId, "QUEUED"));
-        queued.addAll(topicCandidateRepository.findByAgentIdAndDecision(agentId, "LLM_UNAVAILABLE"));
         if (queued.isEmpty()) {
             return List.of();
         }
