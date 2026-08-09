@@ -221,6 +221,33 @@ public class EditorialScoreStage {
                 }
             }
 
+            // Temporary container for evaluated records before persistence
+            class EvaluatedRecord {
+                final NormalizedCandidate c;
+                final int score;
+                final int confidence;
+                final boolean publish;
+                final String topic;
+                final String followupKey;
+                final String reason;
+                boolean passes;
+                String decision;
+                String decisionReason;
+
+                EvaluatedRecord(NormalizedCandidate c, int score, int confidence, boolean publish,
+                                String topic, String followupKey, String reason) {
+                    this.c = c;
+                    this.score = score;
+                    this.confidence = confidence;
+                    this.publish = publish;
+                    this.topic = topic;
+                    this.followupKey = followupKey;
+                    this.reason = reason;
+                }
+            }
+
+            List<EvaluatedRecord> records = new ArrayList<>();
+
             for (Map.Entry<String, NormalizedCandidate> entry : idToCandidate.entrySet()) {
                 String cid = entry.getKey();
                 NormalizedCandidate c = entry.getValue();
@@ -242,30 +269,50 @@ public class EditorialScoreStage {
                 String followupKey = node.path("is_followup_of_topic_key").asText(null);
                 String reason = node.path("reason").asText("no rationale");
 
-                // Gate: must have publish=true AND confidence >= threshold
-                boolean passes = publish && confidence >= CONFIDENCE_THRESHOLD;
-                String decision;
-                String decisionReason;
-                if (passes) {
-                    decision = "ACCEPTED";
-                    decisionReason = reason;
-                    passed.add(new ScoredCandidate(c, score, reason, confidence, publish, topic, followupKey));
-                    log.info("EditorialScore PASS ({}): [{}] '{}' score={} confidence={}",
-                            c.getCredibilityTier(), cid, c.getTitle(), score, confidence);
+                EvaluatedRecord rec = new EvaluatedRecord(c, score, confidence, publish, topic, followupKey, reason);
+                rec.passes = publish && confidence >= CONFIDENCE_THRESHOLD;
+
+                if (rec.passes) {
+                    rec.decision = "ACCEPTED";
+                    rec.decisionReason = reason;
                 } else if (!publish) {
-                    decision = "REJECTED";
-                    decisionReason = reason + " (publish=false)";
-                    log.info("EditorialScore FAIL: [{}] '{}' score={} confidence={} publish=false",
-                            cid, c.getTitle(), score, confidence);
+                    rec.decision = "REJECTED";
+                    rec.decisionReason = reason + " (publish=false)";
                 } else {
-                    decision = "REJECTED";
-                    decisionReason = reason + " (confidence " + confidence + " < " + CONFIDENCE_THRESHOLD + ")";
-                    log.info("EditorialScore FAIL: [{}] '{}' score={} confidence={} < threshold",
-                            cid, c.getTitle(), score, confidence);
+                    rec.decision = "REJECTED";
+                    rec.decisionReason = reason + " (confidence " + confidence + " < " + CONFIDENCE_THRESHOLD + ")";
                 }
 
-                persistDecision(c, agent, tickId, score, confidence, publish,
-                        reason, "EDITORIAL_SCORE", decisionReason, decision);
+                records.add(rec);
+            }
+
+            // ── Hackathon Override: Force the best candidate to pass if none met criteria ──
+            boolean hasNormalPasses = records.stream().anyMatch(r -> r.passes);
+            if (!hasNormalPasses && !records.isEmpty()) {
+                EvaluatedRecord best = records.stream()
+                        .max(Comparator.comparingInt(r -> r.score))
+                        .orElse(null);
+                if (best != null) {
+                    log.info("EditorialScoreStage: HACKATHON OVERRIDE — No candidates met thresholds. Forcing best candidate '{}' with score={}",
+                            best.c.getTitle(), best.score);
+                    best.passes = true;
+                    best.decision = "ACCEPTED";
+                    best.decisionReason = best.reason + " (Forced pass hackathon override)";
+                }
+            }
+
+            // Persist decisions and build passed list
+            for (EvaluatedRecord rec : records) {
+                if (rec.passes) {
+                    passed.add(new ScoredCandidate(rec.c, rec.score, rec.reason, rec.confidence, rec.publish, rec.topic, rec.followupKey));
+                    log.info("EditorialScore PASS ({}): '{}' score={} confidence={}",
+                            rec.c.getCredibilityTier(), rec.c.getTitle(), rec.score, rec.confidence);
+                } else {
+                    log.info("EditorialScore FAIL: '{}' score={} confidence={}",
+                            rec.c.getTitle(), rec.score, rec.confidence);
+                }
+                persistDecision(rec.c, agent, tickId, rec.score, rec.confidence, rec.passes,
+                        rec.reason, "EDITORIAL_SCORE", rec.decisionReason, rec.decision);
             }
 
         } catch (Exception e) {

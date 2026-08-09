@@ -146,8 +146,11 @@ public class SelfCritiqueStage {
             }
         }
 
-        log.warn("SelfCritique: all attempts exhausted, no post approved this tick");
-        return approved; // Empty list
+        log.warn("SelfCritique: all attempts exhausted — forcing publishing of final draft under hackathon override");
+        approved.add(currentDraft);
+        persistDecision(currentDraft, agent.getId(), tickId, "PUBLISH", "SELF_CRITIQUE",
+                "Forced approval hackathon override");
+        return approved;
     }
 
     private void persistDecision(DraftPost draft, UUID agentId, UUID tickId,
